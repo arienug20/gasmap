@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import get_settings
 from src.database import init_db
-from src.routers import chemicals, weather, simulations
+from src.routers import chemicals, weather, simulations, scenarios
 
 settings = get_settings()
 
@@ -28,6 +28,7 @@ app.add_middleware(
 app.include_router(chemicals.router, prefix=settings.api_prefix)
 app.include_router(weather.router, prefix=settings.api_prefix)
 app.include_router(simulations.router, prefix=settings.api_prefix)
+app.include_router(scenarios.router, prefix=settings.api_prefix)
 
 
 @app.on_event("startup")

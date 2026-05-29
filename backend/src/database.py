@@ -46,6 +46,7 @@ def get_db() -> Session:
 def init_db():
     """Initialize database with tables and seed data."""
     from src.models.chemical import Base
+    import src.models.scenario  # noqa: ensure Scenario table is registered
 
     # Create all tables
     Base.metadata.create_all(bind=engine)

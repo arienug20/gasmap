@@ -27,4 +27,14 @@ export const simulationsApi = {
   run: (data: Record<string, unknown>) => api.post('/simulations/run', data),
 };
 
+export const scenariosApi = {
+  list: () => api.get('/scenarios'),
+  get: (id: number) => api.get(`/scenarios/${id}`),
+  create: (data: Record<string, unknown>) => api.post('/scenarios', data),
+  update: (id: number, data: Record<string, unknown>) => api.put(`/scenarios/${id}`, data),
+  delete: (id: number) => api.delete(`/scenarios/${id}`),
+  export: (id: number) => api.get(`/scenarios/${id}/export`),
+  import: (data: Record<string, unknown>) => api.post('/scenarios/import', data),
+};
+
 export default api;

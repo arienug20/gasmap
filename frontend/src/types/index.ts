@@ -45,6 +45,29 @@ export interface SimulationResult {
   computation_time_ms: number;
 }
 
+export interface Scenario {
+  id: number;
+  name: string;
+  description: string;
+  chemical_cas: string;
+  chemical_name: string;
+  model: string;
+  emission_rate: number | null;
+  total_mass: number | null;
+  release_height: number;
+  release_density: number | null;
+  wind_speed: number;
+  stability_class: string;
+  terrain: string;
+  ambient_temp: number;
+  grid_resolution: number;
+  grid_size_x: number;
+  grid_size_y: number;
+  results: SimulationResult | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface WeatherPreset {
   name: string;
   wind_speed: number;

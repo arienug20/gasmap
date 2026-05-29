@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Chemical, SimulationResult, WeatherPreset } from '../types';
-import { chemicalsApi, weatherApi, simulationsApi } from '../api/client';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Chemical, SimulationResult, WeatherPreset, Scenario } from '../types';
+import { chemicalsApi, weatherApi, simulationsApi, scenariosApi } from '../api/client';
 
 const STABILITY_CLASSES = ['A', 'B', 'C', 'D', 'E', 'F'];
 const MODELS = [
@@ -29,6 +29,15 @@ export default function App() {
   const [terrain, setTerrain] = useState('rural');
   const [gridSize, setGridSize] = useState(5000);
 
+  // Scenario management state
+  const [currentScenarioId, setCurrentScenarioId] = useState<number | null>(null);
+  const [currentScenarioName, setCurrentScenarioName] = useState<string>('');
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showOpenDialog, setShowOpenDialog] = useState(false);
+  const [savedScenarios, setSavedScenarios] = useState<Scenario[]>([]);
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const saveNameRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     chemicalsApi.list().then(r => setChemicals(r.data.chemicals)).catch(() => {});
     weatherApi.presets().then(r => setPresets(r.data.presets)).catch(() => {});
@@ -51,6 +60,134 @@ export default function App() {
       setWindSpeed(preset.wind_speed);
       setStabilityClass(preset.stability_class);
     }
+  };
+
+  // New scenario
+  const handleNew = () => {
+    setCurrentScenarioId(null);
+    setCurrentScenarioName('');
+    setSelectedChemical(null);
+    setSearchQuery('');
+    setModel('gaussian_plume');
+    setEmissionRate(10);
+    setTotalMass(1000);
+    setReleaseHeight(0);
+    setWindSpeed(5);
+    setStabilityClass('D');
+    setTerrain('rural');
+    setGridSize(5000);
+    setResult(null);
+    setError(null);
+  };
+
+  // Open scenario
+  const handleOpen = async () => {
+    try {
+      const r = await scenariosApi.list();
+      setSavedScenarios(r.data.scenarios);
+      setShowOpenDialog(true);
+    } catch { /* ignore */ }
+  };
+
+  const handleLoadScenario = async (id: number) => {
+    try {
+      const r = await scenariosApi.get(id);
+      const sc = r.data;
+      setCurrentScenarioId(sc.id);
+      setCurrentScenarioName(sc.name);
+      setModel(sc.model);
+      setEmissionRate(sc.emission_rate ?? 10);
+      setTotalMass(sc.total_mass ?? 1000);
+      setReleaseHeight(sc.release_height);
+      setWindSpeed(sc.wind_speed);
+      setStabilityClass(sc.stability_class);
+      setTerrain(sc.terrain);
+      setGridSize(sc.grid_size_x);
+      // Load chemical
+      const c = chemicals.find(ch => ch.cas_number === sc.chemical_cas);
+      if (c) setSelectedChemical(c);
+      else {
+        try {
+          const cr = await chemicalsApi.get(sc.chemical_cas);
+          setSelectedChemical(cr.data);
+        } catch { /* chemical may not exist in test */ }
+      }
+      setResult(sc.results || null);
+      setShowOpenDialog(false);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || 'Failed to load scenario');
+    }
+  };
+
+  // Save
+  const handleSave = async (name: string) => {
+    if (!selectedChemical) { setError('Select a chemical first'); return; }
+    const payload = {
+      name,
+      chemical_cas: selectedChemical.cas_number,
+      chemical_name: selectedChemical.name,
+      model,
+      emission_rate: emissionRate,
+      total_mass: totalMass,
+      release_height: releaseHeight,
+      wind_speed: windSpeed,
+      stability_class: stabilityClass,
+      terrain,
+      grid_resolution: 100,
+      grid_size_x: gridSize,
+      grid_size_y: gridSize * 0.4,
+      results: result,
+    };
+    try {
+      if (currentScenarioId) {
+        await scenariosApi.update(currentScenarioId, payload);
+      } else {
+        const r = await scenariosApi.create(payload);
+        setCurrentScenarioId(r.data.id);
+        setCurrentScenarioName(name);
+      }
+      setShowSaveDialog(false);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || 'Save failed');
+    }
+  };
+
+  // Export
+  const handleExport = async () => {
+    if (!currentScenarioId) return;
+    try {
+      const r = await scenariosApi.export(currentScenarioId);
+      const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `scenario_${currentScenarioId}.json`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setError('Export failed');
+    }
+  };
+
+  // Import
+  const handleImport = () => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = '.json';
+    input.onchange = async (e: any) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        const r = await scenariosApi.import(data);
+        setCurrentScenarioId(r.data.id);
+        setCurrentScenarioName(r.data.name);
+        setShowSaveDialog(false);
+        // Load it
+        await handleLoadScenario(r.data.id);
+      } catch (e: any) {
+        setError(e?.response?.data?.detail || 'Import failed');
+      }
+    };
+    input.click();
   };
 
   const handleRun = async () => {
@@ -76,6 +213,8 @@ export default function App() {
       }
       const r = await simulationsApi.run(payload);
       setResult(r.data);
+      // Auto-prompt save
+      setShowSavePrompt(true);
     } catch (e: any) {
       setError(e?.response?.data?.detail || 'Simulation failed');
     } finally {
@@ -93,9 +232,112 @@ export default function App() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-blue-700 text-white px-6 py-4 shadow">
-        <h1 className="text-2xl font-bold">GasMap — Gas Dispersion Visualizer</h1>
-        <p className="text-blue-200 text-sm">Process Safety Engineering Tool</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">GasMap — Gas Dispersion Visualizer</h1>
+            <p className="text-blue-200 text-sm">Process Safety Engineering Tool</p>
+          </div>
+          {/* Scenario Toolbar */}
+          <div className="flex items-center gap-2">
+            <button onClick={handleNew} className="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded text-sm font-medium">
+              📄 New
+            </button>
+            <button onClick={handleOpen} className="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded text-sm font-medium">
+              📂 Open
+            </button>
+            <button onClick={() => {
+              if (currentScenarioId && currentScenarioName) {
+                handleSave(currentScenarioName);
+              } else {
+                setShowSaveDialog(true);
+              }
+            }} className="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded text-sm font-medium">
+              💾 Save
+            </button>
+            <button onClick={() => setShowSaveDialog(true)} className="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded text-sm font-medium">
+              Save As
+            </button>
+            <button onClick={handleExport} disabled={!currentScenarioId} className="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded text-sm font-medium disabled:opacity-40">
+              ⬇ Export
+            </button>
+            <button onClick={handleImport} className="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded text-sm font-medium">
+              ⬆ Import
+            </button>
+          </div>
+        </div>
+        {currentScenarioName && (
+          <p className="text-blue-200 text-xs mt-1">Current: {currentScenarioName}</p>
+        )}
       </header>
+
+      {/* Save Dialog */}
+      {showSaveDialog && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+            <h3 className="text-lg font-semibold mb-3">Save Scenario</h3>
+            <input
+              ref={saveNameRef}
+              type="text"
+              placeholder="Scenario name..."
+              defaultValue={currentScenarioName}
+              className="w-full border rounded px-3 py-2 text-sm mb-4"
+              onKeyDown={e => { if (e.key === 'Enter') { const v = (e.target as HTMLInputElement).value; if (v) handleSave(v); } }}
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowSaveDialog(false)} className="px-4 py-2 text-sm border rounded hover:bg-gray-50">Cancel</button>
+              <button onClick={() => { const name = saveNameRef.current?.value; if (name) handleSave(name); }} className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Open Dialog */}
+      {showOpenDialog && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-[500px] max-h-[80vh] overflow-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Open Scenario</h3>
+              <button onClick={() => setShowOpenDialog(false)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+            </div>
+            {savedScenarios.length === 0 ? (
+              <p className="text-gray-400 text-center py-8">No saved scenarios</p>
+            ) : (
+              <div className="space-y-2">
+                {savedScenarios.map(sc => (
+                  <div key={sc.id} className="border rounded p-3 hover:bg-blue-50 cursor-pointer flex justify-between items-center"
+                    onClick={() => handleLoadScenario(sc.id)}>
+                    <div>
+                      <p className="font-medium">{sc.name}</p>
+                      <p className="text-xs text-gray-500">{sc.chemical_name} · {sc.model} · {sc.updated_at ? new Date(sc.updated_at).toLocaleString() : ''}</p>
+                    </div>
+                    <button onClick={async (e) => {
+                      e.stopPropagation();
+                      if (confirm('Delete this scenario?')) {
+                        await scenariosApi.delete(sc.id);
+                        setSavedScenarios(savedScenarios.filter(s => s.id !== sc.id));
+                      }
+                    }} className="text-red-400 hover:text-red-600 text-sm">🗑</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Save Prompt after simulation */}
+      {showSavePrompt && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+            <h3 className="text-lg font-semibold mb-3">💾 Save Results?</h3>
+            <p className="text-sm text-gray-600 mb-4">Simulation completed successfully. Would you like to save this scenario?</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowSavePrompt(false)} className="px-4 py-2 text-sm border rounded hover:bg-gray-50">Skip</button>
+              <button onClick={() => { setShowSavePrompt(false); if (currentScenarioId && currentScenarioName) { handleSave(currentScenarioName); } else { setShowSaveDialog(true); } }} className="px-4 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Panel: Scenario Builder */}
