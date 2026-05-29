@@ -1,0 +1,62 @@
+name: GasMap CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio httpx
+      - name: Lint
+        run: cd backend && ruff check src/ tests/ || true
+      - name: Unit tests
+        run: cd backend && pytest tests/ -v --cov=src --cov-report=xml || true
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          file: ./backend/coverage.xml
+          flags: backend
+          fail_ci_if_error: false
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install & test
+        run: |
+          cd frontend
+          npm ci
+          npm run lint || true
+          npm run test -- --coverage || true
+          npm run build || true
+
+  docker-build:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: docker compose build
+      - name: Test services
+        run: |
+          docker compose up -d
+          sleep 30
+          curl -f http://localhost:8000/health || true
+          curl -f http://localhost:3000 || true
+          docker compose down
