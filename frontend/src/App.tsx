@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Chemical, SimulationResult, WeatherPreset, Scenario } from '../types';
-import { chemicalsApi, weatherApi, simulationsApi, scenariosApi } from '../api/client';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Chemical, SimulationResult, WeatherPreset, Scenario } from './types';
+import { chemicalsApi, weatherApi, simulationsApi, scenariosApi } from './api/client';
 
 const STABILITY_CLASSES = ['A', 'B', 'C', 'D', 'E', 'F'];
 const MODELS = [

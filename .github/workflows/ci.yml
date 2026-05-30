@@ -18,7 +18,7 @@ jobs:
         run: |
           cd backend
           pip install -r requirements.txt
-          pip install pytest pytest-cov pytest-asyncio httpx
+          pip install pytest pytest-cov pytest-asyncio httpx ruff
       - name: Lint
         run: cd backend && ruff check src/ tests/ || true
       - name: Unit tests
@@ -41,10 +41,10 @@ jobs:
       - name: Install & test
         run: |
           cd frontend
-          npm ci
+          npm install
           npm run lint || true
-          npm run test -- --coverage || true
-          npm run build || true
+          npm run test -- --coverage --run || true
+          npm run build
 
   docker-build:
     runs-on: ubuntu-latest
